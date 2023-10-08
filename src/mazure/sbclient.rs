@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use chrono::{DateTime, Utc};
 use reqwest::Response;
 use reqwest::header::ToStrError;
 use serde::{Serialize, Deserialize};
@@ -6,10 +9,9 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::mazure::aadclient::{AADClient, AADError};
+use crate::mazure::opt_date_rfc2822_serialization;
 
 pub static SERVICE_BUS_RESOURCE: &str = "https://servicebus.azure.net";
-
-use std::sync::Arc;
 
 #[derive(Error, Debug)]
 pub enum AzureServiceBusError {
@@ -68,51 +70,62 @@ impl From<serde_json::Error> for AzureServiceBusError {
     }
 }
 
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BrokerProperties {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "CorrelationId")]
-    correlation_id: Option<String>,
+    pub correlation_id: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "DeliveryCount")]
-    delivery_count: Option<i32>,
+    pub delivery_count: Option<i32>,
     
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "EnqueuedSequenceNumber")]
-    enqueued_sequence_number: Option<i32>,
+    pub enqueued_sequence_number: Option<i32>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "EnqueuedTimeUtc")]
-    enqueued_time_utc: Option<String>,
+    #[serde(with = "opt_date_rfc2822_serialization")]
+    #[serde(default)]
+    pub enqueued_time_utc: Option<DateTime<Utc>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "Label")]
-    label: Option<String>,
+    pub label: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "LockToken")]
-    lock_token: Option<String>,
+    pub lock_token: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "LockedUntilUtc")]
-    locked_until_utc: Option<String>,
+    #[serde(with = "opt_date_rfc2822_serialization")]
+    #[serde(default)]
+    pub locked_until_utc: Option<DateTime<Utc>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "MessageId")]
-    message_id: Option<String>,
+    pub message_id: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "SequenceNumber")]
-    sequence_number: Option<i64>,
+    pub sequence_number: Option<i64>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "State")]
-    state: Option<String>,
+    pub state: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "TimeToLive")]
-    time_to_live: Option<i64>,
+    pub time_to_live: Option<i64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ScheduledEnqueueTimeUtc")]
+    #[serde(with = "opt_date_rfc2822_serialization")]
+    #[serde(default)]
+    pub scheduled_enqueue_time_utc: Option<DateTime<Utc>>,
 }
 
 impl BrokerProperties {
@@ -128,7 +141,8 @@ impl BrokerProperties {
             message_id: None,
             sequence_number: None,
             state: None,
-            time_to_live: None
+            time_to_live: None,
+            scheduled_enqueue_time_utc: None,
         }
     }
 
@@ -186,6 +200,7 @@ impl AzureServiceBusClient {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn send_json<T: Serialize>(self: &Self, body: &T) -> Result<String, AzureServiceBusError> {
         let msg = Message::new_json(body)?;
         self.send(&msg).await

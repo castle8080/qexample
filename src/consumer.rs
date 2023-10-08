@@ -1,10 +1,13 @@
 use std::error::Error;
+
+use chrono::Local;
+
 use crate::mazure::sbclient::AzureServiceBusClient;
 use crate::messages::LogInfo;
 
 pub async fn run_consumer_loop(sb_client: &AzureServiceBusClient) -> Result<(), Box<dyn Error>> {
     loop {
-        println!("Waiting for new message.");
+        println!("[{}] Waiting for new message.", Local::now());
         match run_consumer(sb_client).await {
             Err(e) => {
                 println!("Error processing: {:?}", e);

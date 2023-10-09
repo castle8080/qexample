@@ -68,9 +68,54 @@ impl From<serde_json::Error> for AzureServiceBusError {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BrokerSendProperties {
+    // Common properties
+    // TODO: How do I share the code for the receive properties.?
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "CorrelationId")]
+    pub correlation_id: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "CorrelationId")]
+    pub session_id: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "Label")]
+    pub label: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ReplyTo")]
+    pub reply_to: Option<String>,
+
+    // TODO: this is a time span, come up with better type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "TimeToLive")]
+    pub time_to_live: Option<i64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "To")]
+    pub to: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ScheduledEnqueueTimeUtc")]
+    #[serde(with = "opt_date_rfc2822_serialization")]
+    #[serde(default)]
+    pub scheduled_enqueue_time_utc: Option<DateTime<Utc>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ReplyToSessionId")]
+    pub reply_to_session_id: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "PartitionKey")]
+    pub partition_key: Option<String>,
+
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct BrokerProperties {
+pub struct BrokerReceiveProperties {
     // Common properties
     // TODO: How do I share the code for the receive properties.?
 
@@ -150,9 +195,31 @@ pub struct BrokerProperties {
     pub state: Option<String>,
 }
 
-impl BrokerProperties {
+impl BrokerSendProperties {
     pub fn new_empty() -> Self {
-        BrokerProperties {
+        BrokerSendProperties {
+            correlation_id: None,
+            label: None,
+            time_to_live: None,
+            scheduled_enqueue_time_utc: None,
+            partition_key: None,
+            reply_to: None,
+            reply_to_session_id: None,
+            session_id: None,
+            to: None,
+        }
+    }
+    
+    pub fn to_json(self: &Self) -> Result<String, AzureServiceBusError> {
+        Ok(serde_json::to_string(self)?)
+    }
+}
+
+impl BrokerReceiveProperties {
+
+    #[allow(dead_code)]
+    pub fn new_empty() -> Self {
+        BrokerReceiveProperties {
             correlation_id: None,
             delivery_count: None,
             enqueued_time_utc: None,
@@ -171,8 +238,8 @@ impl BrokerProperties {
             state: None,
         }
     }
-
-    pub fn from_http_response(res: &Response) -> Result<BrokerProperties, AzureServiceBusError> {
+    
+    pub fn from_http_response(res: &Response) -> Result<BrokerReceiveProperties, AzureServiceBusError> {
         match res.headers().get("BrokerProperties") {
             None => {
                 return Err(AzureServiceBusError::ConversionError("BrokerProperites header not present in response.".into()));
@@ -184,27 +251,30 @@ impl BrokerProperties {
         }
     }
 
+    #[allow(dead_code)]
     pub fn to_json(self: &Self) -> Result<String, AzureServiceBusError> {
         Ok(serde_json::to_string(self)?)
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Message {
-    pub properties: BrokerProperties,
+pub struct Message<T> {
+    pub properties: T,
     pub content: Vec<u8>,
     pub content_type: String,
 }
 
-impl Message {
+impl<P> Message<P> {
     pub fn json_into<T: DeserializeOwned>(self: &Self) -> Result<T, AzureServiceBusError> {
         Ok(serde_json::from_slice(&self.content)?)
     }
+}
 
-    pub fn new_json<T: Serialize>(body: &T) -> Result<Message, AzureServiceBusError> {
+impl Message<BrokerSendProperties> {
+    pub fn new_json<T: Serialize>(body: &T) -> Result<Self, AzureServiceBusError> {
         let raw_bytes = serde_json::to_vec(body)?;
         Ok(Message {
-            properties: BrokerProperties::new_empty(),
+            properties: BrokerSendProperties::new_empty(),
             content: raw_bytes,
             content_type: "text/json".into()
         })
@@ -235,7 +305,7 @@ impl AzureServiceBusClient {
         self.send(&msg).await
     }
 
-    pub async fn send(self: &Self, message: &Message) -> Result<String, AzureServiceBusError> {
+    pub async fn send(self: &Self, message: &Message<BrokerSendProperties>) -> Result<String, AzureServiceBusError> {
         let url = format!(
             "https://{}.servicebus.windows.net/{}/messages",
             urlencoding::encode(self.namespace.as_str()),
@@ -272,7 +342,7 @@ impl AzureServiceBusClient {
         Ok(correlation_id)
     }
 
-    pub async fn peek_lock(self: &Self) -> Result<Option<Message>, AzureServiceBusError> {
+    pub async fn peek_lock(self: &Self) -> Result<Option<Message<BrokerReceiveProperties>>, AzureServiceBusError> {
         let url = format!(
             "https://{}.servicebus.windows.net/{}/messages/head",
             urlencoding::encode(self.namespace.as_str()),
@@ -291,7 +361,7 @@ impl AzureServiceBusClient {
                 Some(hv) => hv.to_str()?.into()
             };
 
-            let properties = BrokerProperties::from_http_response(&res)?;
+            let properties = BrokerReceiveProperties::from_http_response(&res)?;
             let content = res.bytes().await?.to_vec();
             return Ok(Some(Message { properties, content, content_type }));
         }
@@ -304,7 +374,7 @@ impl AzureServiceBusClient {
         }
     }
 
-    pub async fn delete_message(self: &Self, message_properties: &BrokerProperties) -> Result<(), AzureServiceBusError> {
+    pub async fn delete_message(self: &Self, message_properties: &BrokerReceiveProperties) -> Result<(), AzureServiceBusError> {
         let message_id = match &message_properties.message_id {
             None => Err(AzureServiceBusError::RequestError("No message id found in broker properties.".into())),
             Some(message_id) => Ok(message_id)

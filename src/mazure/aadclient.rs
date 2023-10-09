@@ -2,51 +2,18 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::io::BufReader;
 use std::fs::File;
-use std::num::ParseIntError;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
+use reqwest::RequestBuilder;
 use serde_json;
 use serde::{Serialize, Deserialize};
-use thiserror::Error;
+
+use crate::mazure::client_authentication::{ClientAuthenticator, AuthenticationError};
 
 /// A library to get AAD application tokens.
-
-#[derive(Error, Debug)]
-pub enum AADError {
-    #[error("Unable to obtain AAD token: {0}")]
-    TokenAcquisitionError(String),
-
-    #[error("Format error for token: {0}")]
-    TokenFormatError(String),
-
-    #[error("Communication error: {0}")]
-    CommunicationError(String),
-
-    #[error("Concurrency error: {0}")]
-    ConcurrencyError(String),
-}
-
-// Conversions from other errors to AADError allow
-
-impl From<ParseIntError> for AADError {
-    fn from(e: ParseIntError) -> Self {
-        AADError::TokenFormatError(format!("Error parsing: {}", e))
-    }
-}
-
-impl From<reqwest::Error> for AADError {
-    fn from(e: reqwest::Error) -> Self {
-        AADError::CommunicationError(format!("Communication error: {}", e))
-    }
-}
-
-impl<T> From<PoisonError<T>> for AADError {
-    fn from(e: PoisonError<T>) -> Self {
-        AADError::ConcurrencyError(format!("Concurrency error: {}", e))
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AADCredentials {
@@ -72,7 +39,7 @@ pub struct AADTokenResponse {
 }
 
 impl AADTokenResponse {
-    pub fn to_token(self: &Self) -> Result<AADToken, AADError> {
+    pub fn to_token(self: &Self) -> Result<AADToken, AuthenticationError> {
         let expires = self.expires_on.parse::<u64>()?;
         Ok(AADToken { token: self.access_token.clone(), expires })
     }
@@ -125,7 +92,7 @@ impl AADClient {
         }
     }
 
-    pub async fn get_token(self: &Self) -> Result<AADToken, AADError> {
+    pub async fn get_token(self: &Self) -> Result<AADToken, AuthenticationError> {
         let url = format!("{}/{}/oauth2/token", self.oauth_endpoint, self.credentials.tenant_id);
         let mut params = HashMap::new();
         params.insert("grant_type", "client_credentials");
@@ -140,14 +107,14 @@ impl AADClient {
             .await?;
 
         if res.status() != reqwest::StatusCode::OK {
-            return Err(AADError::TokenAcquisitionError(res.status().to_string()).into())
+            return Err(AuthenticationError::AuthenticationAcquisitionError(res.status().to_string()).into())
         }
 
         let token_response: AADTokenResponse = res.json().await?;
         Ok(token_response.to_token()?)
     }
 
-    pub async fn get_cached_token(self: &Self) -> Result<AADToken, AADError> {
+    pub async fn get_cached_token(self: &Self) -> Result<AADToken, AuthenticationError> {
         let mut guard = self.cached_token.lock()?;
 
         if let Some(token) = &*guard {
@@ -160,5 +127,15 @@ impl AADClient {
         *guard = Some(token.clone());
 
         Ok(token)
+    }
+}
+
+#[async_trait(?Send)]
+impl ClientAuthenticator for Arc<AADClient> {
+    async fn authenticate(&self, reqbuilder: RequestBuilder) -> Result<RequestBuilder, AuthenticationError> {
+        let token = self.get_cached_token();
+        let t = token.await?;
+
+        Ok(reqbuilder.bearer_auth(&t.token))
     }
 }

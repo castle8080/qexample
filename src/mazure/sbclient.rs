@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use chrono::{DateTime, Utc};
 use reqwest::Response;
 use reqwest::header::ToStrError;
@@ -8,7 +6,7 @@ use serde::de::DeserializeOwned;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::mazure::aadclient::{AADClient, AADError};
+use crate::mazure::client_authentication::{ClientAuthenticator, AuthenticationError};
 use crate::mazure::opt_date_rfc2822_serialization;
 
 pub static SERVICE_BUS_RESOURCE: &str = "https://servicebus.azure.net";
@@ -46,8 +44,8 @@ impl AzureServiceBusError {
     }
 }
 
-impl From<AADError> for AzureServiceBusError {
-    fn from(e: AADError) -> Self {
+impl From<AuthenticationError> for AzureServiceBusError {
+    fn from(e: AuthenticationError) -> Self {
         AzureServiceBusError::AuthenticationError(e.to_string())
     }
 }
@@ -214,7 +212,7 @@ impl Message {
 }
 
 pub struct AzureServiceBusClient {
-    aad_client: Arc<AADClient>,
+    authenticator: Box<dyn ClientAuthenticator>,
     http_client: reqwest::Client,
     namespace: String,
     path: String,
@@ -222,9 +220,9 @@ pub struct AzureServiceBusClient {
 
 impl AzureServiceBusClient {
 
-    pub fn new(aad_client: Arc<AADClient>, http_client: reqwest::Client, namespace: impl Into<String>, path: impl Into<String>) -> Self {
+    pub fn new(authenticator: Box<dyn ClientAuthenticator>, http_client: reqwest::Client, namespace: impl Into<String>, path: impl Into<String>) -> Self {
         Self {
-            aad_client,
+            authenticator,
             http_client,
             namespace: namespace.into(),
             path: path.into(),
@@ -260,11 +258,7 @@ impl AzureServiceBusClient {
             }
         };
 
-        let token = self.aad_client.get_cached_token().await?;
-
-        let res = self.http_client
-            .post(url)
-            .bearer_auth(token.token)
+        let res = self.authenticator.authenticate(self.http_client.post(url)).await?
             .header("Content-Type", &message.content_type)
             .header("BrokerProperties", &props_json)
             .body(message.content.to_vec())
@@ -284,11 +278,7 @@ impl AzureServiceBusClient {
             urlencoding::encode(self.namespace.as_str()),
             urlencoding::encode(self.path.as_str()));
 
-        let token = self.aad_client.get_cached_token().await?;
-
-        let res = self.http_client
-            .post(url)
-            .bearer_auth(token.token)
+        let res = self.authenticator.authenticate(self.http_client.post(url)).await?
             .header("Content-Length", 0)
             .send()
             .await?;
@@ -332,11 +322,7 @@ impl AzureServiceBusClient {
             urlencoding::encode(message_id.as_str()),
             urlencoding::encode(lock_token));
 
-        let token = self.aad_client.get_cached_token().await?;
-
-        let res = self.http_client
-            .delete(url)
-            .bearer_auth(token.token)
+        let res = self.authenticator.authenticate(self.http_client.delete(url)).await?
             .header("Content-Length", 0)
             .send()
             .await?;

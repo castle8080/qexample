@@ -42,7 +42,7 @@ impl CommandLineArgs {
         let http_client = reqwest::Client::new();
 
         let aad_client = Arc::new(AADClient::new(http_client.clone(), aad_creds, SERVICE_BUS_RESOURCE, Option::None));
-        Ok(AzureServiceBusClient::new(aad_client.clone(), http_client, &self.service_bus_namespace, &self.queue))
+        Ok(AzureServiceBusClient::new(Box::new(aad_client), http_client, &self.service_bus_namespace, &self.queue))
     }
 }
 

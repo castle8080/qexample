@@ -38,8 +38,11 @@ struct CommandLineArgs {
 impl CommandLineArgs {
     fn create_sb_client(self: &Self) -> Result<AzureServiceBusClient, Box<dyn Error>> {
         let aad_creds = AADCredentials::from_file(&self.credentials_file)?;
-        let aad_client = Arc::new(AADClient::new(aad_creds, SERVICE_BUS_RESOURCE, Option::None));
-        Ok(AzureServiceBusClient::new(aad_client.clone(), &self.service_bus_namespace, &self.queue))
+
+        let http_client = reqwest::Client::new();
+
+        let aad_client = Arc::new(AADClient::new(http_client.clone(), aad_creds, SERVICE_BUS_RESOURCE, Option::None));
+        Ok(AzureServiceBusClient::new(aad_client.clone(), http_client, &self.service_bus_namespace, &self.queue))
     }
 }
 

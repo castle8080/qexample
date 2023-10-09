@@ -95,6 +95,7 @@ impl AADToken {
 
 #[derive(Debug, Clone)]
 pub struct AADClient {
+    http_client: reqwest::Client,
     credentials: AADCredentials,
     resource: String,
     oauth_endpoint: String,
@@ -104,6 +105,7 @@ pub struct AADClient {
 impl AADClient {
 
     pub fn new(
+        http_client: reqwest::Client,
         credentials: AADCredentials,
         resource: impl Into<String>,
         oauth_endpoint: Option<&str>,
@@ -115,6 +117,7 @@ impl AADClient {
         };
 
         Self {
+            http_client,
             credentials,
             resource: resource.into(),
             oauth_endpoint: ep,
@@ -130,8 +133,8 @@ impl AADClient {
         params.insert("client_secret", self.credentials.secret.as_str());
         params.insert("resource", self.resource.as_str());
 
-        let client = reqwest::Client::new();
-        let res = client.get(url)
+        let res = self.http_client
+            .get(url)
             .form(&params)
             .send()
             .await?;

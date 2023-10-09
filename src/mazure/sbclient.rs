@@ -186,15 +186,17 @@ impl Message {
 
 pub struct AzureServiceBusClient {
     aad_client: Arc<AADClient>,
+    http_client: reqwest::Client,
     namespace: String,
     path: String,
 }
 
 impl AzureServiceBusClient {
 
-    pub fn new(aad_client: Arc<AADClient>, namespace: impl Into<String>, path: impl Into<String>) -> Self {
+    pub fn new(aad_client: Arc<AADClient>, http_client: reqwest::Client, namespace: impl Into<String>, path: impl Into<String>) -> Self {
         Self {
             aad_client,
+            http_client,
             namespace: namespace.into(),
             path: path.into(),
         }
@@ -230,9 +232,9 @@ impl AzureServiceBusClient {
         };
 
         let token = self.aad_client.get_cached_token().await?;
-        let client = reqwest::Client::new();
 
-        let res = client.post(url)
+        let res = self.http_client
+            .post(url)
             .bearer_auth(token.token)
             .header("Content-Type", &message.content_type)
             .header("BrokerProperties", &props_json)
@@ -254,9 +256,9 @@ impl AzureServiceBusClient {
             urlencoding::encode(self.path.as_str()));
 
         let token = self.aad_client.get_cached_token().await?;
-        let client = reqwest::Client::new();
 
-        let res = client.post(url)
+        let res = self.http_client
+            .post(url)
             .bearer_auth(token.token)
             .header("Content-Length", 0)
             .send()
@@ -302,9 +304,9 @@ impl AzureServiceBusClient {
             urlencoding::encode(lock_token));
 
         let token = self.aad_client.get_cached_token().await?;
-        let client = reqwest::Client::new();
 
-        let res = client.delete(url)
+        let res = self.http_client
+            .delete(url)
             .bearer_auth(token.token)
             .header("Content-Length", 0)
             .send()

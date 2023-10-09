@@ -73,17 +73,67 @@ impl From<serde_json::Error> for AzureServiceBusError {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BrokerProperties {
+    // Common properties
+    // TODO: How do I share the code for the receive properties.?
+
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "CorrelationId")]
     pub correlation_id: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "CorrelationId")]
+    pub session_id: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "Label")]
+    pub label: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ReplyTo")]
+    pub reply_to: Option<String>,
+
+    // TODO: this is a time span, come up with better type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "TimeToLive")]
+    pub time_to_live: Option<i64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "To")]
+    pub to: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ScheduledEnqueueTimeUtc")]
+    #[serde(with = "opt_date_rfc2822_serialization")]
+    #[serde(default)]
+    pub scheduled_enqueue_time_utc: Option<DateTime<Utc>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ReplyToSessionId")]
+    pub reply_to_session_id: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "PartitionKey")]
+    pub partition_key: Option<String>,
+
+    // Receive only properties
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "DeliveryCount")]
     pub delivery_count: Option<i32>,
     
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "EnqueuedSequenceNumber")]
-    pub enqueued_sequence_number: Option<i32>,
+    #[serde(rename = "LockedUntilUtc")]
+    #[serde(with = "opt_date_rfc2822_serialization")]
+    #[serde(default)]
+    pub locked_until_utc: Option<DateTime<Utc>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "LockToken")]
+    pub lock_token: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "MessageId")]
+    pub message_id: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "EnqueuedTimeUtc")]
@@ -92,40 +142,14 @@ pub struct BrokerProperties {
     pub enqueued_time_utc: Option<DateTime<Utc>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "Label")]
-    pub label: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "LockToken")]
-    pub lock_token: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "LockedUntilUtc")]
-    #[serde(with = "opt_date_rfc2822_serialization")]
-    #[serde(default)]
-    pub locked_until_utc: Option<DateTime<Utc>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "MessageId")]
-    pub message_id: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "SequenceNumber")]
-    pub sequence_number: Option<i64>,
+    pub sequence_number: Option<i32>,
+
+    // Fields documented on BrokerProperties object, but not main page.
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "State")]
     pub state: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "TimeToLive")]
-    pub time_to_live: Option<i64>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "ScheduledEnqueueTimeUtc")]
-    #[serde(with = "opt_date_rfc2822_serialization")]
-    #[serde(default)]
-    pub scheduled_enqueue_time_utc: Option<DateTime<Utc>>,
 }
 
 impl BrokerProperties {
@@ -133,16 +157,20 @@ impl BrokerProperties {
         BrokerProperties {
             correlation_id: None,
             delivery_count: None,
-            enqueued_sequence_number: None,
             enqueued_time_utc: None,
             label: None,
             lock_token: None,
             locked_until_utc: None,
             message_id: None,
             sequence_number: None,
-            state: None,
             time_to_live: None,
             scheduled_enqueue_time_utc: None,
+            partition_key: None,
+            reply_to: None,
+            reply_to_session_id: None,
+            session_id: None,
+            to: None,
+            state: None,
         }
     }
 
@@ -152,7 +180,8 @@ impl BrokerProperties {
                 return Err(AzureServiceBusError::ConversionError("BrokerProperites header not present in response.".into()));
             }
             Some(props_text) => {
-                Ok(serde_json::from_str(props_text.to_str()?)?)
+                let json_text = props_text.to_str()?;
+                Ok(serde_json::from_str(json_text)?)
             }
         }
     }

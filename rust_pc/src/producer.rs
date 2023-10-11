@@ -6,7 +6,7 @@ use crate::mazure::sbclient::{AzureServiceBusClient, Message};
 use crate::messages::LogInfo;
 
 pub async fn run_producer(sb_client: &AzureServiceBusClient, count: u32) -> Result<(), Box<dyn Error>> {
-    for _ in 1..count {
+    for _ in 1..=count {
         let log_info = LogInfo::new_random();
         let mut msg = Message::new_json(&log_info)?;
 

@@ -34,22 +34,28 @@ public class SBConsumer {
     private async Task Process(ProcessMessageEventArgs messageEvent)
     {
         Console.WriteLine($"[{DateTime.Now}] Received message: id={messageEvent.Message.CorrelationId} count={messageEvent.Message.DeliveryCount}");
-        var content = messageEvent.Message.Body.ToString();
+        try {
+            var content = messageEvent.Message.Body.ToString();
 
-        Console.WriteLine($"Content: {content}");
+            Console.WriteLine($"Content: {content}");
 
-        if (messageEvent.Message.DeliveryCount == 1) {
-            Console.WriteLine("Abandon message.");
-            // Should get the message back right away.
+            if (messageEvent.Message.DeliveryCount == 1) {
+                Console.WriteLine("Abandon message.");
+                // Should get the message back right away.
+                await messageEvent.AbandonMessageAsync(messageEvent.Message);
+            }
+            else if (messageEvent.Message.DeliveryCount == 2) {
+                Console.WriteLine("Do nothing with the message.");
+                // This should leave the lock and keep someone from picking it up until the lock expires.
+            }
+            else {
+                Console.WriteLine("Complete the message");
+                await messageEvent.CompleteMessageAsync(messageEvent.Message);
+            }
+        }
+        catch (Exception e) {
+            Console.WriteLine($"Error processing: {e}");
             await messageEvent.AbandonMessageAsync(messageEvent.Message);
-        }
-        else if (messageEvent.Message.DeliveryCount == 2) {
-            Console.WriteLine("Do nothing with the message.");
-            // This should leave the lock and keep someone from picking it up until the lock expires.
-        }
-        else {
-            Console.WriteLine("Complete the message");
-            await messageEvent.CompleteMessageAsync(messageEvent.Message);
         }
 
         return;

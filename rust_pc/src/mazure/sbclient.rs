@@ -306,10 +306,7 @@ impl AzureServiceBusClient {
     }
 
     pub async fn send(self: &Self, message: &Message<BrokerSendProperties>) -> Result<String, AzureServiceBusError> {
-        let url = format!(
-            "https://{}.servicebus.windows.net/{}/messages",
-            urlencoding::encode(self.namespace.as_str()),
-            urlencoding::encode(self.path.as_str()));
+        let url = self.get_messages_url();
 
         // this hacky bit is to set a correlation id to a random value if 1 wasn't specified.
         // The input will not be modified though.
@@ -343,10 +340,7 @@ impl AzureServiceBusClient {
     }
 
     pub async fn peek_lock(self: &Self) -> Result<Option<Message<BrokerReceiveProperties>>, AzureServiceBusError> {
-        let url = format!(
-            "https://{}.servicebus.windows.net/{}/messages/head",
-            urlencoding::encode(self.namespace.as_str()),
-            urlencoding::encode(self.path.as_str()));
+        let url = self.get_messages_head_url();
 
         let res = self.authenticator.authenticate(self.http_client.post(url)).await?
             .header("Content-Length", 0)
@@ -374,25 +368,22 @@ impl AzureServiceBusClient {
         }
     }
 
+    pub async fn renew_lock(self: &Self, message_properties: &BrokerReceiveProperties) -> Result<(), AzureServiceBusError> {
+        self.execute_lock_url(message_properties, reqwest::Method::POST).await
+    }
+
+    pub async fn unlock_message(self: &Self, message_properties: &BrokerReceiveProperties) -> Result<(), AzureServiceBusError> {
+        self.execute_lock_url(message_properties, reqwest::Method::PUT).await
+    }
+
     pub async fn delete_message(self: &Self, message_properties: &BrokerReceiveProperties) -> Result<(), AzureServiceBusError> {
-        let message_id = match &message_properties.message_id {
-            None => Err(AzureServiceBusError::RequestError("No message id found in broker properties.".into())),
-            Some(message_id) => Ok(message_id)
-        }?;
+        self.execute_lock_url(message_properties, reqwest::Method::DELETE).await
+    }
 
-        let lock_token = match &message_properties.lock_token {
-            None => Err(AzureServiceBusError::RequestError("No lock token found in broker properties.".into())),
-            Some(lock_token) => Ok(lock_token)
-        }?;
+    async fn execute_lock_url(self: &Self, message_properties: &BrokerReceiveProperties, method: reqwest::Method) -> Result<(), AzureServiceBusError> {
+        let url = self.get_lock_url(message_properties)?;
 
-        let url = format!(
-            "https://{}.servicebus.windows.net/{}/messages/{}/{}",
-            urlencoding::encode(self.namespace.as_str()),
-            urlencoding::encode(self.path.as_str()),
-            urlencoding::encode(message_id.as_str()),
-            urlencoding::encode(lock_token));
-
-        let res = self.authenticator.authenticate(self.http_client.delete(url)).await?
+        let res = self.authenticator.authenticate(self.http_client.request(method, url)).await?
             .header("Content-Length", 0)
             .send()
             .await?;
@@ -404,4 +395,38 @@ impl AzureServiceBusClient {
 
         Ok(())
     }
+
+    fn get_messages_url(self: &Self) -> String {
+        format!(
+            "https://{}.servicebus.windows.net/{}/messages",
+            urlencoding::encode(self.namespace.as_str()),
+            urlencoding::encode(self.path.as_str()))
+    }
+
+    fn get_messages_head_url(self: &Self) -> String {
+        format!(
+            "https://{}.servicebus.windows.net/{}/messages/head",
+            urlencoding::encode(self.namespace.as_str()),
+            urlencoding::encode(self.path.as_str()))
+    }
+
+    fn get_lock_url(self: &Self, message_properties: &BrokerReceiveProperties) -> Result<String, AzureServiceBusError>  {
+        let message_id = match &message_properties.message_id {
+            None => Err(AzureServiceBusError::RequestError("No message id found in broker properties.".into())),
+            Some(message_id) => Ok(message_id)
+        }?;
+
+        let lock_token = match &message_properties.lock_token {
+            None => Err(AzureServiceBusError::RequestError("No lock token found in broker properties.".into())),
+            Some(lock_token) => Ok(lock_token)
+        }?;
+
+        Ok(format!(
+            "https://{}.servicebus.windows.net/{}/messages/{}/{}",
+            urlencoding::encode(self.namespace.as_str()),
+            urlencoding::encode(self.path.as_str()),
+            urlencoding::encode(message_id.as_str()),
+            urlencoding::encode(lock_token)))
+    }
+
 }

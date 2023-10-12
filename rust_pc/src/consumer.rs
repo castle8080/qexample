@@ -31,7 +31,24 @@ pub async fn run_consumer(sb_client: &AzureServiceBusClient) -> Result<(), Box<d
             let payload: LogInfo = msg.json_into()?;
             println!("    content: {:?}", payload);
 
-            sb_client.delete_message(&msg.properties).await?;
+            match msg.properties.delivery_count {
+                None => {
+                    println!("No sequence number found");
+                    sb_client.delete_message(&msg.properties).await?;
+                },
+                Some(1) => {
+                    println!("First seen - unlock it.");
+                    sb_client.unlock_message(&msg.properties).await?;
+                },
+                Some(2) => {
+                    println!("2nd time seen - leave the lock.");
+                    sb_client.renew_lock(&msg.properties).await?;
+                },
+                Some(_) => {
+                    println!("Ok its processed now");
+                    sb_client.delete_message(&msg.properties).await?;
+                }
+            }
         }
     }
 
